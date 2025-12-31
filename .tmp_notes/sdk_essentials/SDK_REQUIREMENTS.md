@@ -296,3 +296,7 @@ Now implement the library according to this plan.
 
 Log your work steps to `.tmp_notes/sdk_essentials`. Including your planning, decisions, challenges, and solutions.
 You can split logging into separate files if needed. The goal is to have ability to proceed implementation in multiple sessions while keeping context.
+
+### Detailed svc API specs
+Detailed specifications for the API endpoints could be found in `.tmp_notes/sdk_essentials/open-api-spec.json`
+Note, that description in the spec may be not up to date, so rely on requirements in this file and on raw models structure defined in json file.

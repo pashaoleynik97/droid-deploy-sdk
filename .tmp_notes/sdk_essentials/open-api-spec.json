@@ -1,0 +1,2592 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "DroidDeploy REST API",
+    "description": "DroidDeploy is a self-hosted Android APK distribution platform.\n\n## Authentication\nThis API supports two authentication methods:\n- **JWT Bearer Token**: For user authentication (obtained from /api/v1/auth/login or /api/v1/auth/refresh endpoints)\n- **API Key**: For CI/CD and consumer application integration (obtained from /api/v1/auth/apikey endpoint)\n\n## User Roles\n- **ADMIN**: Full system access - can manage applications, versions, users, and API keys\n- **CI**: Can upload application versions and update stability flags\n- **CONSUMER**: Can download APKs and view latest versions\n\n## Response Format\nAll endpoints (except binary downloads) return responses wrapped in a standard format:\n```json\n{\n  \"data\": {...},\n  \"message\": \"Success message\",\n  \"errors\": [],\n  \"success\": true\n}\n```\n\nPaginated endpoints return:\n```json\n{\n  \"content\": [...],\n  \"page\": 0,\n  \"size\": 20,\n  \"totalElements\": 100,\n  \"totalPages\": 5\n}\n```\n\n## Error Handling\nError responses include detailed error information:\n- **VALIDATION**: Input validation failures\n- **AUTHENTICATION**: Invalid or expired credentials\n- **AUTHORIZATION**: Insufficient permissions\n- **NOT_FOUND**: Resource not found\n- **CONFLICT**: Resource conflict (e.g., duplicate bundle ID)\n- **INTERNAL_ERROR**: Server-side errors",
+    "license": {
+      "name": "Apache 2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0"
+    },
+    "version": "0.0.0-SNAPSHOT"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Local development server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Applications",
+      "description": "Application management endpoints. All endpoints require ADMIN role. Applications represent Android apps registered in the system. Each application can have multiple versions (APKs)."
+    },
+    {
+      "name": "Users",
+      "description": "User management endpoints. Users have roles (ADMIN, CI, CONSUMER) that determine their permissions. Most endpoints require ADMIN role. Some endpoints have additional authorization logic (e.g., users can only access their own data, super admin restrictions)."
+    },
+    {
+      "name": "API Keys",
+      "description": "Application API key management endpoints. All endpoints require ADMIN role. API keys allow CI/CD pipelines and consumer applications to authenticate without user credentials. Each API key belongs to an application and has a role (CI or CONSUMER) that determines its permissions."
+    },
+    {
+      "name": "Application Versions",
+      "description": "APK version management endpoints. Versions represent specific releases of an application. Each version contains an APK file and metadata (version code, version name, stability flag). Endpoints have varying security requirements: ADMIN for management, ADMIN/CONSUMER for downloads, ADMIN/CI for uploads."
+    },
+    {
+      "name": "Authentication",
+      "description": "User and API key authentication endpoints. All endpoints are public and do not require authentication."
+    }
+  ],
+  "paths": {
+    "/api/v1/user/{userId}/password": {
+      "put": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Update user password",
+        "description": "Update password for a user. Authorization: Super admin can update any ADMIN user's password, regular admin can only update their own password. Password must meet strength requirements (minimum 12 characters). Requires ADMIN role.",
+        "operationId": "updatePassword",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "description": "User UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "New password (minimum 12 characters)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePasswordRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Password updated successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUnit"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - You can only update your own password (unless you are super admin)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUnit"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUnit"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/user/{userId}/activate": {
+      "put": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Activate or deactivate user",
+        "description": "Change user active status. Inactive users cannot authenticate. Authorization: Cannot deactivate yourself. Cannot modify super admin. Requires ADMIN role.",
+        "operationId": "updateActiveStatus",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "description": "User UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Active status update (true to activate, false to deactivate)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserActiveStatusRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Cannot deactivate yourself or modify super admin",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUnit"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "User active status updated successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUnit"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUnit"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/application/{id}": {
+      "get": {
+        "tags": [
+          "Applications"
+        ],
+        "summary": "Get application by ID",
+        "description": "Retrieve detailed information about a specific application by its unique identifier (UUID).",
+        "operationId": "getApplicationById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Application UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - ADMIN role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApplicationResponseDto"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Application retrieved successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApplicationResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Application not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApplicationResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Applications"
+        ],
+        "summary": "Update application",
+        "description": "Update application name and/or bundle ID. If changing the bundle ID, the new value must be unique across all applications.",
+        "operationId": "updateApplication",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Application UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Updated application details",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateApplicationRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - ADMIN role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApplicationResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict - New bundle ID already exists for another application",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApplicationResponseDto"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Application updated successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApplicationResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Application not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApplicationResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Applications"
+        ],
+        "summary": "Delete application",
+        "description": "Permanently delete an application and all its associated versions and APK files. This operation cannot be undone. All version data and APK files will be deleted from storage.",
+        "operationId": "deleteApplication",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Application UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - ADMIN role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUnit"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Application deleted successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUnit"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Application not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUnit"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/application/{applicationId}/version/{versionCode}": {
+      "get": {
+        "tags": [
+          "Application Versions"
+        ],
+        "summary": "Get specific version by version code",
+        "description": "Retrieve detailed information about a specific version by its version code. Version code is a numeric identifier from the APK manifest. Requires ADMIN role.",
+        "operationId": "getVersion",
+        "parameters": [
+          {
+            "name": "applicationId",
+            "in": "path",
+            "description": "Application UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "versionCode",
+            "in": "path",
+            "description": "Version code (numeric identifier from APK)",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "example": 123
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - ADMIN role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseVersionDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Application or version not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseVersionDto"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Version retrieved successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseVersionDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Application Versions"
+        ],
+        "summary": "Update version stability flag",
+        "description": "Mark a version as stable or unstable. Stable versions are returned by the 'latest version' endpoint and are recommended for end users. Unstable versions are for testing and won't be returned as the latest version. Requires ADMIN or CI role (can be accessed with API key for CI/CD pipelines).",
+        "operationId": "updateVersionStability",
+        "parameters": [
+          {
+            "name": "applicationId",
+            "in": "path",
+            "description": "Application UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "versionCode",
+            "in": "path",
+            "description": "Version code (numeric identifier from APK)",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "example": 123
+          }
+        ],
+        "requestBody": {
+          "description": "Stability flag update (true for stable, false for unstable)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateVersionStabilityRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "404": {
+            "description": "Application or version not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseVersionDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - ADMIN or CI role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseVersionDto"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Version stability updated successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseVersionDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Application Versions"
+        ],
+        "summary": "Delete version",
+        "description": "Permanently delete a version and its associated APK file from storage. This operation cannot be undone. The version record and APK file will be deleted. Requires ADMIN role.",
+        "operationId": "deleteVersion",
+        "parameters": [
+          {
+            "name": "applicationId",
+            "in": "path",
+            "description": "Application UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "versionCode",
+            "in": "path",
+            "description": "Version code (numeric identifier from APK)",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "example": 123
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - ADMIN role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Application or version not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Version deleted successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/user": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "List users with filters",
+        "description": "Retrieve a paginated list of users with optional filtering by role and active status. Supports filtering by: role (ADMIN, CI, CONSUMER), isActive (true/false). Page size is capped at 100 items. Requires ADMIN role.",
+        "operationId": "listUsers",
+        "parameters": [
+          {
+            "name": "role",
+            "in": "query",
+            "description": "Filter by user role",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ADMIN",
+                "CI",
+                "CONSUMER"
+              ]
+            }
+          },
+          {
+            "name": "isActive",
+            "in": "query",
+            "description": "Filter by active status",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (0-indexed)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0
+            },
+            "example": 0
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Number of items per page (maximum 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20
+            },
+            "example": 20
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - ADMIN role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponsePagedResponseUserResponseDto"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Users retrieved successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponsePagedResponseUserResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Create new user",
+        "description": "Register a new user with ADMIN or CI role. CONSUMER users cannot be created via this API (they are created through API key authentication). Password must meet strength requirements (minimum 12 characters). Requires ADMIN role.",
+        "operationId": "createUser",
+        "requestBody": {
+          "description": "User details (login, password, role - ADMIN or CI only)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - ADMIN role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUserResponseDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "User created successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUserResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict - User with this login already exists",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUserResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Refresh access token",
+        "description": "Exchange a valid refresh token for new JWT access and refresh tokens. Use this endpoint when the access token expires to obtain a new token pair without requiring the user to log in again.",
+        "operationId": "refresh",
+        "requestBody": {
+          "description": "Refresh token request",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Token refresh successful. Returns new JWT access and refresh tokens.",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseTokenPairDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refresh token invalid or expired.",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseTokenPairDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "User login",
+        "description": "Authenticate with username and password to receive JWT access and refresh tokens. Use the access token for subsequent API calls and the refresh token to obtain new access tokens when they expire.",
+        "operationId": "login",
+        "requestBody": {
+          "description": "Login credentials (username and password)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful. Returns JWT access and refresh tokens.",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseTokenPairDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication failed. Invalid username or password.",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseTokenPairDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/apikey": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Authenticate with API key",
+        "description": "Exchange application-specific API key credentials for an access token. This endpoint is designed for CI/CD pipelines and consumer applications. The API key must be created by an ADMIN user via the API Keys management endpoints. Returns a single access token (no refresh token) with permissions based on the API key's role (CI or CONSUMER).",
+        "operationId": "loginWithApiKey",
+        "requestBody": {
+          "description": "API key credentials (application ID and API key)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiKeyLoginRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "API key authentication failed. Invalid API key, inactive key, or key not found.",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApiTokenDto"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "API key authentication successful. Returns access token with CI or CONSUMER role.",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApiTokenDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/application": {
+      "get": {
+        "tags": [
+          "Applications"
+        ],
+        "summary": "List all applications",
+        "description": "Retrieve a paginated list of all applications registered in the system. Results are sorted by creation date in descending order (newest first). Page size is capped at 100 items.",
+        "operationId": "listApplications",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (0-indexed)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0
+            },
+            "example": 0
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Number of items per page (maximum 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20
+            },
+            "example": 20
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - ADMIN role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponsePagedResponseApplicationResponseDto"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Applications retrieved successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponsePagedResponseApplicationResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Applications"
+        ],
+        "summary": "Create new application",
+        "description": "Register a new Android application in the system. The bundle ID (e.g., com.example.app) must be unique. After creation, you can upload APK versions for this application.",
+        "operationId": "createApplication",
+        "requestBody": {
+          "description": "Application details (name and unique bundle ID)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApplicationRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - ADMIN role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApplicationResponseDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Application created successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApplicationResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict - Application with this bundle ID already exists",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApplicationResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/application/{applicationId}/version": {
+      "get": {
+        "tags": [
+          "Application Versions"
+        ],
+        "summary": "List application versions",
+        "description": "Retrieve a paginated list of all versions for a specific application. Results are sorted by creation date in descending order (newest first). Page size is capped at 100 items. Requires ADMIN role.",
+        "operationId": "listVersions",
+        "parameters": [
+          {
+            "name": "applicationId",
+            "in": "path",
+            "description": "Application UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (0-indexed)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0
+            },
+            "example": 0
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Number of items per page (maximum 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20
+            },
+            "example": 20
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - ADMIN role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponsePagedResponseVersionDto"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Versions retrieved successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponsePagedResponseVersionDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Application not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponsePagedResponseVersionDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Application Versions"
+        ],
+        "summary": "Upload new APK version",
+        "description": "Upload and register a new APK version for an application. The APK file is parsed to extract version code, version name, and other metadata. The file is stored and a new version record is created. Newly uploaded versions are marked as unstable by default. Use the update stability endpoint to mark as stable. Requires ADMIN or CI role (can be accessed with API key for CI/CD pipelines).",
+        "operationId": "uploadVersion",
+        "parameters": [
+          {
+            "name": "applicationId",
+            "in": "path",
+            "description": "Application UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "file"
+                ],
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "description": "APK file to upload",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Version uploaded successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseVersionDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - ADMIN or CI role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseVersionDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Application not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseVersionDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict - Version with this version code already exists",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseVersionDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/application/{applicationId}/security/apikey": {
+      "get": {
+        "tags": [
+          "API Keys"
+        ],
+        "summary": "List API keys for application",
+        "description": "Retrieve a paginated list of API keys for a specific application with optional filtering and sorting. Supports filtering by: role (CI, CONSUMER), isActive (true/false). Supports custom sorting (format: field,direction). Page size is capped at 100 items. Requires ADMIN role.",
+        "operationId": "listApiKeys",
+        "parameters": [
+          {
+            "name": "applicationId",
+            "in": "path",
+            "description": "Application UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "description": "Filter by API key role",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CI",
+                "CONSUMER"
+              ]
+            }
+          },
+          {
+            "name": "isActive",
+            "in": "query",
+            "description": "Filter by active status",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (0-indexed)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0
+            },
+            "example": 0
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Number of items per page (maximum 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20
+            },
+            "example": 20
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sort order (format: field,direction)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "createdAt,desc"
+            },
+            "example": "createdAt,desc"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "API keys retrieved successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponsePagedResponseApiKeyDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - ADMIN role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponsePagedResponseApiKeyDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Application not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponsePagedResponseApiKeyDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "API Keys"
+        ],
+        "summary": "Create new API key",
+        "description": "Generate a new API key for an application with specified role (CI or CONSUMER). The generated key is returned only once during creation and cannot be retrieved later. Store it securely. API keys can be used via the /auth/apikey endpoint to obtain access tokens. Requires ADMIN role.",
+        "operationId": "createApiKey",
+        "parameters": [
+          {
+            "name": "applicationId",
+            "in": "path",
+            "description": "Application UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "API key details (name and role - CI or CONSUMER)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiKeyRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - ADMIN role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApiKeyDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "API key created successfully. The key value is returned only once.",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApiKeyDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Application not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseApiKeyDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/application/{applicationId}/security/apikey/{apiKeyId}/revoke": {
+      "post": {
+        "tags": [
+          "API Keys"
+        ],
+        "summary": "Revoke API key",
+        "description": "Revoke (deactivate) an API key, preventing it from being used for authentication. Revoked keys cannot be reactivated - you must create a new key if needed. This operation is permanent. Requires ADMIN role.",
+        "operationId": "revokeApiKey",
+        "parameters": [
+          {
+            "name": "applicationId",
+            "in": "path",
+            "description": "Application UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "apiKeyId",
+            "in": "path",
+            "description": "API Key UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - ADMIN role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseMapStringString"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "API key revoked successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseMapStringString"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Application or API key not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseMapStringString"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/user/{userId}": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Get user by ID",
+        "description": "Retrieve user details by UUID. Authorization: ADMIN can access any user, non-ADMIN users can only access their own data. Requires authentication (any role).",
+        "operationId": "getUserById",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "description": "User UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User retrieved successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUserResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - You can only access your own user data (unless you are ADMIN)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUserResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseUserResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/application/{applicationId}/version/{versionCode}/apk": {
+      "get": {
+        "tags": [
+          "Application Versions"
+        ],
+        "summary": "Download APK file",
+        "description": "Download the APK binary file for a specific version. Returns the APK file as a binary download with appropriate content-type and Content-Disposition headers. Used by consumer applications to download app updates. Requires ADMIN or CONSUMER role (can be accessed with API key).",
+        "operationId": "downloadApk",
+        "parameters": [
+          {
+            "name": "applicationId",
+            "in": "path",
+            "description": "Application UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "versionCode",
+            "in": "path",
+            "description": "Version code (numeric identifier from APK)",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "example": 123
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - ADMIN or CONSUMER role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Application or version not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "APK file downloaded successfully",
+            "content": {
+              "application/vnd.android.package-archive": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/application/{applicationId}/version/latest": {
+      "get": {
+        "tags": [
+          "Application Versions"
+        ],
+        "summary": "Get latest stable version",
+        "description": "Retrieve the latest stable version of an application. Returns the most recent version marked as stable. Used by consumer applications to check for updates. Requires ADMIN or CONSUMER role (can be accessed with API key).",
+        "operationId": "getLatestVersion",
+        "parameters": [
+          {
+            "name": "applicationId",
+            "in": "path",
+            "description": "Application UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - ADMIN or CONSUMER role required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseVersionDto"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Latest stable version retrieved successfully",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseVersionDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Application not found or no stable versions available",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestResponseVersionDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "UpdatePasswordRequestDto": {
+        "required": [
+          "newPassword"
+        ],
+        "type": "object",
+        "properties": {
+          "newPassword": {
+            "type": "string",
+            "description": "New password (minimum 12 characters)",
+            "example": "NewSecurePassword456!"
+          }
+        }
+      },
+      "RestError": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Error type classification",
+            "example": "VALIDATION",
+            "enum": [
+              "VALIDATION",
+              "AUTHENTICATION",
+              "AUTHORIZATION",
+              "NOT_FOUND",
+              "CONFLICT",
+              "INTERNAL_ERROR",
+              "UNKNOWN"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Detailed error message",
+            "example": "Invalid input provided"
+          },
+          "field": {
+            "type": "string",
+            "description": "Field name for validation errors. Null for non-field errors.",
+            "nullable": true,
+            "example": "email"
+          }
+        },
+        "description": "Error information for failed operations",
+        "example": []
+      },
+      "RestResponseUnit": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Unit"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message describing the operation result",
+            "example": "Operation completed successfully"
+          },
+          "errors": {
+            "type": "array",
+            "description": "List of errors that occurred during the operation. Empty on success.",
+            "example": [],
+            "items": {
+              "$ref": "#/components/schemas/RestError"
+            }
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Indicates whether the operation was successful. True if errors list is empty.",
+            "example": true
+          }
+        },
+        "description": "Standard response wrapper for all API endpoints",
+        "example": "{\"data\": {...}, \"message\": \"Operation completed successfully\", \"errors\": [], \"success\": true}"
+      },
+      "Unit": {
+        "type": "object",
+        "description": "Response payload data. Contains the requested resource or result. Null on error.",
+        "nullable": true
+      },
+      "UpdateUserActiveStatusRequestDto": {
+        "required": [
+          "setActive"
+        ],
+        "type": "object",
+        "properties": {
+          "setActive": {
+            "type": "boolean",
+            "description": "Active status - true to activate, false to deactivate",
+            "example": true
+          }
+        }
+      },
+      "UpdateApplicationRequestDto": {
+        "required": [
+          "bundleId",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Application display name",
+            "example": "My Updated Android App"
+          },
+          "bundleId": {
+            "type": "string",
+            "description": "Android application bundle ID (must be unique)",
+            "example": "com.example.myapp"
+          }
+        }
+      },
+      "ApplicationResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Application unique identifier",
+            "format": "uuid",
+            "example": "123e4567-e89b-12d3-a456-426614174000"
+          },
+          "name": {
+            "type": "string",
+            "description": "Application display name",
+            "example": "My Android App"
+          },
+          "bundleId": {
+            "type": "string",
+            "description": "Android application bundle ID",
+            "example": "com.example.myapp"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Timestamp when the application was created",
+            "format": "date-time",
+            "example": "2025-12-29T10:30:00Z"
+          }
+        },
+        "description": "Response payload data. Contains the requested resource or result. Null on error.",
+        "nullable": true
+      },
+      "RestResponseApplicationResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ApplicationResponseDto"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message describing the operation result",
+            "example": "Operation completed successfully"
+          },
+          "errors": {
+            "type": "array",
+            "description": "List of errors that occurred during the operation. Empty on success.",
+            "example": [],
+            "items": {
+              "$ref": "#/components/schemas/RestError"
+            }
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Indicates whether the operation was successful. True if errors list is empty.",
+            "example": true
+          }
+        },
+        "description": "Standard response wrapper for all API endpoints",
+        "example": "{\"data\": {...}, \"message\": \"Operation completed successfully\", \"errors\": [], \"success\": true}"
+      },
+      "UpdateVersionStabilityRequestDto": {
+        "required": [
+          "stable"
+        ],
+        "type": "object",
+        "properties": {
+          "stable": {
+            "type": "boolean",
+            "description": "Stability flag - true to mark as stable, false to mark as unstable",
+            "example": true
+          }
+        }
+      },
+      "RestResponseVersionDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/VersionDto"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message describing the operation result",
+            "example": "Operation completed successfully"
+          },
+          "errors": {
+            "type": "array",
+            "description": "List of errors that occurred during the operation. Empty on success.",
+            "example": [],
+            "items": {
+              "$ref": "#/components/schemas/RestError"
+            }
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Indicates whether the operation was successful. True if errors list is empty.",
+            "example": true
+          }
+        },
+        "description": "Standard response wrapper for all API endpoints",
+        "example": "{\"data\": {...}, \"message\": \"Operation completed successfully\", \"errors\": [], \"success\": true}"
+      },
+      "VersionDto": {
+        "type": "object",
+        "properties": {
+          "versionName": {
+            "type": "string",
+            "description": "Human-readable version name from APK manifest",
+            "nullable": true,
+            "example": "1.2.3"
+          },
+          "versionCode": {
+            "type": "integer",
+            "description": "Numeric version code from APK manifest",
+            "format": "int64",
+            "nullable": true,
+            "example": 123
+          },
+          "stable": {
+            "type": "boolean",
+            "description": "Stability flag - true for stable releases, false for testing/beta versions",
+            "example": true
+          }
+        },
+        "description": "Response payload data. Contains the requested resource or result. Null on error.",
+        "nullable": true
+      },
+      "CreateUserRequestDto": {
+        "required": [
+          "login",
+          "password",
+          "role"
+        ],
+        "type": "object",
+        "properties": {
+          "login": {
+            "type": "string",
+            "description": "User login (username)",
+            "example": "newuser"
+          },
+          "password": {
+            "type": "string",
+            "description": "User password (minimum 12 characters)",
+            "example": "SecurePassword123!"
+          },
+          "role": {
+            "type": "string",
+            "description": "User role (ADMIN or CI only, CONSUMER not allowed)",
+            "example": "CI",
+            "enum": [
+              "ADMIN",
+              "CI"
+            ]
+          }
+        }
+      },
+      "RestResponseUserResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UserResponseDto"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message describing the operation result",
+            "example": "Operation completed successfully"
+          },
+          "errors": {
+            "type": "array",
+            "description": "List of errors that occurred during the operation. Empty on success.",
+            "example": [],
+            "items": {
+              "$ref": "#/components/schemas/RestError"
+            }
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Indicates whether the operation was successful. True if errors list is empty.",
+            "example": true
+          }
+        },
+        "description": "Standard response wrapper for all API endpoints",
+        "example": "{\"data\": {...}, \"message\": \"Operation completed successfully\", \"errors\": [], \"success\": true}"
+      },
+      "UserResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "User unique identifier",
+            "format": "uuid",
+            "example": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+          },
+          "login": {
+            "type": "string",
+            "description": "User login (username)",
+            "example": "admin"
+          },
+          "role": {
+            "type": "string",
+            "description": "User role",
+            "example": "ADMIN",
+            "enum": [
+              "ADMIN",
+              "CI",
+              "CONSUMER"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Timestamp when the user was created",
+            "format": "date-time",
+            "example": "2025-12-29T10:30:00Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "Timestamp when the user was last updated",
+            "format": "date-time",
+            "example": "2025-12-29T10:30:00Z"
+          },
+          "lastLoginAt": {
+            "type": "string",
+            "description": "Timestamp of last successful login",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2025-12-29T14:20:00Z"
+          },
+          "lastInteractionAt": {
+            "type": "string",
+            "description": "Timestamp of last API interaction",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2025-12-29T14:25:00Z"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "description": "Response payload data. Contains the requested resource or result. Null on error.",
+        "nullable": true
+      },
+      "RefreshTokenRequestDto": {
+        "required": [
+          "refreshToken"
+        ],
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "description": "Refresh token received from login endpoint",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.cThIIoDvwdueQB468K5xDc5633seEFoqwxjF_xSJyQQ"
+          }
+        }
+      },
+      "RestResponseTokenPairDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TokenPairDto"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message describing the operation result",
+            "example": "Operation completed successfully"
+          },
+          "errors": {
+            "type": "array",
+            "description": "List of errors that occurred during the operation. Empty on success.",
+            "example": [],
+            "items": {
+              "$ref": "#/components/schemas/RestError"
+            }
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Indicates whether the operation was successful. True if errors list is empty.",
+            "example": true
+          }
+        },
+        "description": "Standard response wrapper for all API endpoints",
+        "example": "{\"data\": {...}, \"message\": \"Operation completed successfully\", \"errors\": [], \"success\": true}"
+      },
+      "TokenPairDto": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "description": "JWT access token for API authentication",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+          },
+          "accessTokenExpiresAt": {
+            "type": "integer",
+            "description": "Unix timestamp (seconds) when access token expires",
+            "format": "int64",
+            "example": 1735560600
+          },
+          "refreshToken": {
+            "type": "string",
+            "description": "JWT refresh token for obtaining new access tokens",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.cThIIoDvwdueQB468K5xDc5633seEFoqwxjF_xSJyQQ"
+          },
+          "refreshTokenExpiresAt": {
+            "type": "integer",
+            "description": "Unix timestamp (seconds) when refresh token expires",
+            "format": "int64",
+            "example": 1738152600
+          }
+        },
+        "description": "Response payload data. Contains the requested resource or result. Null on error.",
+        "nullable": true
+      },
+      "LoginRequestDto": {
+        "required": [
+          "login",
+          "password"
+        ],
+        "type": "object",
+        "properties": {
+          "login": {
+            "type": "string",
+            "description": "User login (username)",
+            "example": "admin"
+          },
+          "password": {
+            "type": "string",
+            "description": "User password",
+            "example": "SecurePassword123!"
+          }
+        }
+      },
+      "ApiKeyLoginRequestDto": {
+        "required": [
+          "apiKey"
+        ],
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "Application API key (created via /api/v1/application/{id}/security/apikey)",
+            "example": "dd_ak_1a2b3c4d5e6f7g8h9i0j"
+          }
+        }
+      },
+      "ApiTokenDto": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "description": "API access token for CI/CD or consumer authentication",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+          }
+        },
+        "description": "Response payload data. Contains the requested resource or result. Null on error.",
+        "nullable": true
+      },
+      "RestResponseApiTokenDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ApiTokenDto"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message describing the operation result",
+            "example": "Operation completed successfully"
+          },
+          "errors": {
+            "type": "array",
+            "description": "List of errors that occurred during the operation. Empty on success.",
+            "example": [],
+            "items": {
+              "$ref": "#/components/schemas/RestError"
+            }
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Indicates whether the operation was successful. True if errors list is empty.",
+            "example": true
+          }
+        },
+        "description": "Standard response wrapper for all API endpoints",
+        "example": "{\"data\": {...}, \"message\": \"Operation completed successfully\", \"errors\": [], \"success\": true}"
+      },
+      "CreateApplicationRequestDto": {
+        "required": [
+          "bundleId",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Application display name",
+            "example": "My Android App"
+          },
+          "bundleId": {
+            "type": "string",
+            "description": "Android application bundle ID (must be unique)",
+            "example": "com.example.myapp"
+          }
+        }
+      },
+      "CreateApiKeyRequestDto": {
+        "required": [
+          "name",
+          "role"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Human-readable API key name",
+            "example": "CI Pipeline Key"
+          },
+          "role": {
+            "type": "string",
+            "description": "API key role (CI for CI/CD pipelines, CONSUMER for app downloads)",
+            "example": "CI",
+            "enum": [
+              "CI",
+              "CONSUMER"
+            ]
+          },
+          "expireBy": {
+            "type": "integer",
+            "description": "Optional expiration timestamp in milliseconds (null for no expiration)",
+            "format": "int64",
+            "nullable": true,
+            "example": 1767196200000
+          }
+        }
+      },
+      "ApiKeyDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "API key unique identifier",
+            "format": "uuid",
+            "example": "a1b2c3d4-e5f6-4789-a012-3b456c789def"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable API key name",
+            "example": "CI Pipeline Key"
+          },
+          "role": {
+            "type": "string",
+            "description": "API key role",
+            "example": "CI",
+            "enum": [
+              "CI",
+              "CONSUMER"
+            ]
+          },
+          "applicationId": {
+            "type": "string",
+            "description": "Application UUID this API key belongs to",
+            "format": "uuid",
+            "example": "123e4567-e89b-12d3-a456-426614174000"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Timestamp when the API key was created",
+            "format": "date-time",
+            "example": "2025-12-29T10:30:00Z"
+          },
+          "lastUsedAt": {
+            "type": "string",
+            "description": "Timestamp when the API key was last used for authentication",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2025-12-29T14:20:00Z"
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "Timestamp when the API key expires (null if no expiration)",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-12-29T10:30:00Z"
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "The actual API key value (only returned on creation, null otherwise)",
+            "nullable": true,
+            "example": "dd_ak_1a2b3c4d5e6f7g8h9i0j"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "description": "Response payload data. Contains the requested resource or result. Null on error.",
+        "nullable": true
+      },
+      "RestResponseApiKeyDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ApiKeyDto"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message describing the operation result",
+            "example": "Operation completed successfully"
+          },
+          "errors": {
+            "type": "array",
+            "description": "List of errors that occurred during the operation. Empty on success.",
+            "example": [],
+            "items": {
+              "$ref": "#/components/schemas/RestError"
+            }
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Indicates whether the operation was successful. True if errors list is empty.",
+            "example": true
+          }
+        },
+        "description": "Standard response wrapper for all API endpoints",
+        "example": "{\"data\": {...}, \"message\": \"Operation completed successfully\", \"errors\": [], \"success\": true}"
+      },
+      "RestResponseMapStringString": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "description": "Response payload data. Contains the requested resource or result. Null on error.",
+              "nullable": true
+            },
+            "description": "Response payload data. Contains the requested resource or result. Null on error.",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message describing the operation result",
+            "example": "Operation completed successfully"
+          },
+          "errors": {
+            "type": "array",
+            "description": "List of errors that occurred during the operation. Empty on success.",
+            "example": [],
+            "items": {
+              "$ref": "#/components/schemas/RestError"
+            }
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Indicates whether the operation was successful. True if errors list is empty.",
+            "example": true
+          }
+        },
+        "description": "Standard response wrapper for all API endpoints",
+        "example": "{\"data\": {...}, \"message\": \"Operation completed successfully\", \"errors\": [], \"success\": true}"
+      },
+      "PagedResponseUserResponseDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "description": "List of items in the current page",
+            "example": "[...]",
+            "items": {
+              "$ref": "#/components/schemas/UserResponseDto"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "description": "Current page number (0-indexed)",
+            "format": "int32",
+            "example": 0
+          },
+          "size": {
+            "type": "integer",
+            "description": "Number of items per page",
+            "format": "int32",
+            "example": 20
+          },
+          "totalElements": {
+            "type": "integer",
+            "description": "Total number of elements across all pages",
+            "format": "int64",
+            "example": 100
+          },
+          "totalPages": {
+            "type": "integer",
+            "description": "Total number of pages",
+            "format": "int32",
+            "example": 5
+          }
+        },
+        "description": "Paginated response wrapper for list endpoints",
+        "nullable": true,
+        "example": "{\"content\": [...], \"page\": 0, \"size\": 20, \"totalElements\": 100, \"totalPages\": 5}"
+      },
+      "RestResponsePagedResponseUserResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PagedResponseUserResponseDto"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message describing the operation result",
+            "example": "Operation completed successfully"
+          },
+          "errors": {
+            "type": "array",
+            "description": "List of errors that occurred during the operation. Empty on success.",
+            "example": [],
+            "items": {
+              "$ref": "#/components/schemas/RestError"
+            }
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Indicates whether the operation was successful. True if errors list is empty.",
+            "example": true
+          }
+        },
+        "description": "Standard response wrapper for all API endpoints",
+        "example": "{\"data\": {...}, \"message\": \"Operation completed successfully\", \"errors\": [], \"success\": true}"
+      },
+      "PagedResponseApplicationResponseDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "description": "List of items in the current page",
+            "example": "[...]",
+            "items": {
+              "$ref": "#/components/schemas/ApplicationResponseDto"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "description": "Current page number (0-indexed)",
+            "format": "int32",
+            "example": 0
+          },
+          "size": {
+            "type": "integer",
+            "description": "Number of items per page",
+            "format": "int32",
+            "example": 20
+          },
+          "totalElements": {
+            "type": "integer",
+            "description": "Total number of elements across all pages",
+            "format": "int64",
+            "example": 100
+          },
+          "totalPages": {
+            "type": "integer",
+            "description": "Total number of pages",
+            "format": "int32",
+            "example": 5
+          }
+        },
+        "description": "Paginated response wrapper for list endpoints",
+        "nullable": true,
+        "example": "{\"content\": [...], \"page\": 0, \"size\": 20, \"totalElements\": 100, \"totalPages\": 5}"
+      },
+      "RestResponsePagedResponseApplicationResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PagedResponseApplicationResponseDto"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message describing the operation result",
+            "example": "Operation completed successfully"
+          },
+          "errors": {
+            "type": "array",
+            "description": "List of errors that occurred during the operation. Empty on success.",
+            "example": [],
+            "items": {
+              "$ref": "#/components/schemas/RestError"
+            }
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Indicates whether the operation was successful. True if errors list is empty.",
+            "example": true
+          }
+        },
+        "description": "Standard response wrapper for all API endpoints",
+        "example": "{\"data\": {...}, \"message\": \"Operation completed successfully\", \"errors\": [], \"success\": true}"
+      },
+      "PagedResponseVersionDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "description": "List of items in the current page",
+            "example": "[...]",
+            "items": {
+              "$ref": "#/components/schemas/VersionDto"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "description": "Current page number (0-indexed)",
+            "format": "int32",
+            "example": 0
+          },
+          "size": {
+            "type": "integer",
+            "description": "Number of items per page",
+            "format": "int32",
+            "example": 20
+          },
+          "totalElements": {
+            "type": "integer",
+            "description": "Total number of elements across all pages",
+            "format": "int64",
+            "example": 100
+          },
+          "totalPages": {
+            "type": "integer",
+            "description": "Total number of pages",
+            "format": "int32",
+            "example": 5
+          }
+        },
+        "description": "Paginated response wrapper for list endpoints",
+        "nullable": true,
+        "example": "{\"content\": [...], \"page\": 0, \"size\": 20, \"totalElements\": 100, \"totalPages\": 5}"
+      },
+      "RestResponsePagedResponseVersionDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PagedResponseVersionDto"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message describing the operation result",
+            "example": "Operation completed successfully"
+          },
+          "errors": {
+            "type": "array",
+            "description": "List of errors that occurred during the operation. Empty on success.",
+            "example": [],
+            "items": {
+              "$ref": "#/components/schemas/RestError"
+            }
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Indicates whether the operation was successful. True if errors list is empty.",
+            "example": true
+          }
+        },
+        "description": "Standard response wrapper for all API endpoints",
+        "example": "{\"data\": {...}, \"message\": \"Operation completed successfully\", \"errors\": [], \"success\": true}"
+      },
+      "PagedResponseApiKeyDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "description": "List of items in the current page",
+            "example": "[...]",
+            "items": {
+              "$ref": "#/components/schemas/ApiKeyDto"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "description": "Current page number (0-indexed)",
+            "format": "int32",
+            "example": 0
+          },
+          "size": {
+            "type": "integer",
+            "description": "Number of items per page",
+            "format": "int32",
+            "example": 20
+          },
+          "totalElements": {
+            "type": "integer",
+            "description": "Total number of elements across all pages",
+            "format": "int64",
+            "example": 100
+          },
+          "totalPages": {
+            "type": "integer",
+            "description": "Total number of pages",
+            "format": "int32",
+            "example": 5
+          }
+        },
+        "description": "Paginated response wrapper for list endpoints",
+        "nullable": true,
+        "example": "{\"content\": [...], \"page\": 0, \"size\": 20, \"totalElements\": 100, \"totalPages\": 5}"
+      },
+      "RestResponsePagedResponseApiKeyDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PagedResponseApiKeyDto"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message describing the operation result",
+            "example": "Operation completed successfully"
+          },
+          "errors": {
+            "type": "array",
+            "description": "List of errors that occurred during the operation. Empty on success.",
+            "example": [],
+            "items": {
+              "$ref": "#/components/schemas/RestError"
+            }
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Indicates whether the operation was successful. True if errors list is empty.",
+            "example": true
+          }
+        },
+        "description": "Standard response wrapper for all API endpoints",
+        "example": "{\"data\": {...}, \"message\": \"Operation completed successfully\", \"errors\": [], \"success\": true}"
+      },
+      "RestResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Response payload data. Contains the requested resource or result. Null on error.",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable message describing the operation result",
+            "example": "Operation completed successfully"
+          },
+          "errors": {
+            "type": "array",
+            "description": "List of errors that occurred during the operation. Empty on success.",
+            "example": [],
+            "items": {
+              "$ref": "#/components/schemas/RestError"
+            }
+          },
+          "success": {
+            "type": "boolean",
+            "description": "Indicates whether the operation was successful. True if errors list is empty.",
+            "example": true
+          }
+        },
+        "description": "Standard response wrapper for all API endpoints",
+        "example": "{\"data\": {...}, \"message\": \"Operation completed successfully\", \"errors\": [], \"success\": true}"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "description": "JWT access token obtained from /api/v1/auth/login or /api/v1/auth/refresh endpoints",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "apiKeyAuth": {
+        "type": "http",
+        "description": "API key token obtained from /api/v1/auth/apikey endpoint using application-specific API key credentials",
+        "scheme": "bearer",
+        "bearerFormat": "API-KEY"
+      }
+    }
+  }
+}

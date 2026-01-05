@@ -105,6 +105,8 @@ LOGGING
   data class DroidDeployLog(level: Level, tag: String, message: String, throwable: Throwable? = null)
 - Debug logs can be enabled/disabled via config.
 - When enabled: OkHttp logging interceptor + internal logs go to listener.
+- When enabled: redact sensitive info (Authorization header).
+- When enabled: log logical steps
 
 VERSION CODE PROVIDER (Android 10+)
 - Provide default: use PackageManager to get installed versionCode (Long).

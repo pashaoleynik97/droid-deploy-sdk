@@ -40,6 +40,12 @@ android {
 }
 
 dependencies {
+    // DroidDeploy SDK
+    implementation(project(":droiddeploy"))
+
+    // Coroutines (required for lifecycleScope)
+    implementation(libs.coroutines.core)
+    implementation(libs.coroutines.android)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

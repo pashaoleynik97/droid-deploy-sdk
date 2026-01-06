@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.kapt)
+    `maven-publish`
 }
 
 android {
@@ -59,4 +60,36 @@ dependencies {
     testImplementation(libs.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+}
+
+// Read version from version.txt
+val versionFile = rootProject.file("version.txt")
+val sdkVersion = if (versionFile.exists()) {
+    versionFile.readText().trim()
+} else {
+    "0.1.0"
+}
+
+// Task to generate sources JAR
+val sourcesJar by tasks.registering(Jar::class) {
+    archiveClassifier.set("sources")
+    from(android.sourceSets["main"].java.srcDirs)
+}
+
+// Maven publishing configuration
+afterEvaluate {
+    publishing {
+        publications {
+            create<MavenPublication>("release") {
+                from(components["release"])
+
+                groupId = "com.github.pashaoleynik97"
+                artifactId = "droiddeploy"
+                version = sdkVersion
+
+                // Include sources JAR
+                artifact(sourcesJar)
+            }
+        }
+    }
 }

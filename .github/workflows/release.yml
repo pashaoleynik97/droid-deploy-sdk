@@ -14,7 +14,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate branch
         run: |
@@ -25,60 +24,76 @@ jobs:
             exit 1
           fi
 
-      - name: Read and increment version
+      - name: Read base version and compute next patch from tags
         id: version
+        shell: bash
         run: |
+          set -euo pipefail
+
           if [ ! -f version.txt ]; then
             echo "Error: version.txt not found"
             exit 1
           fi
 
-          VERSION=$(cat version.txt | tr -d '[:space:]')
-          if [ -z "$VERSION" ]; then
+          BASE_VERSION="$(tr -d '[:space:]' < version.txt)"
+          if [ -z "$BASE_VERSION" ]; then
             echo "Error: version.txt is empty"
             exit 1
           fi
 
-          # Validate version format (MAJOR.MINOR.PATCH)
-          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Error: Invalid version format in version.txt: $VERSION"
+          # BASE_VERSION must be MAJOR.MINOR.PATCH (we treat this as "base", but do not commit changes)
+          if ! echo "$BASE_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Error: Invalid version format in version.txt: $BASE_VERSION"
             echo "Expected format: MAJOR.MINOR.PATCH (e.g., 1.0.0)"
             exit 1
           fi
 
-          # Extract version parts
-          MAJOR=$(echo $VERSION | cut -d. -f1)
-          MINOR=$(echo $VERSION | cut -d. -f2)
-          PATCH=$(echo $VERSION | cut -d. -f3)
+          MAJOR="$(echo "$BASE_VERSION" | cut -d. -f1)"
+          MINOR="$(echo "$BASE_VERSION" | cut -d. -f2)"
+          BASE_PATCH="$(echo "$BASE_VERSION" | cut -d. -f3)"
 
-          # Increment patch version
-          NEW_PATCH=$((PATCH + 1))
-          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+          # Find latest existing tag for this MAJOR.MINOR.* line
+          # Tags expected format: vX.Y.Z
+          LAST_TAG="$(git tag -l "v${MAJOR}.${MINOR}.*" --sort=-v:refname | head -n 1 || true)"
 
-          echo "Current version: $VERSION"
+          if [ -z "$LAST_TAG" ]; then
+            # No tags yet for this line; start at BASE_PATCH + 1 (or BASE_PATCH, but you wanted auto-increment)
+            NEXT_PATCH="$((BASE_PATCH + 1))"
+          else
+            # Extract patch from LAST_TAG and increment
+            LAST_PATCH="$(echo "$LAST_TAG" | sed -E "s/^v${MAJOR}\.${MINOR}\.([0-9]+)$/\1/")"
+            if ! echo "$LAST_PATCH" | grep -qE '^[0-9]+$'; then
+              echo "Error: Could not parse patch from last tag: $LAST_TAG"
+              exit 1
+            fi
+            NEXT_PATCH="$((LAST_PATCH + 1))"
+          fi
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
+          TAG="v${NEW_VERSION}"
+
+          echo "Base version from version.txt: $BASE_VERSION"
+          echo "Last tag for line v${MAJOR}.${MINOR}.*: ${LAST_TAG:-<none>}"
           echo "New version: $NEW_VERSION"
+          echo "New tag: $TAG"
 
-          # Save new version to file
-          echo "$NEW_VERSION" > version.txt
+          # Guard: do not overwrite existing tag
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Error: Tag $TAG already exists"
+            exit 1
+          fi
 
-          # Export for later steps
-          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Configure Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Commit version change
-        run: |
-          git add version.txt
-          git commit -m "Release v${{ steps.version.outputs.version }}"
-
-      - name: Create and push tag
+      - name: Create and push tag (no master pushes)
         run: |
           git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
-          git push origin master
           git push origin "${{ steps.version.outputs.tag }}"
 
       - name: Set up JDK 17

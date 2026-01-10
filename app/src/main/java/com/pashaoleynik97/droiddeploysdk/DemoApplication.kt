@@ -14,7 +14,7 @@ class DemoApplication : Application() {
             setApiKey("EWN6D3bkuHcZ5Ti24eQ6rjzeGYpcHM2kit2o9ge54b4")
             setApplicationId("3c516f2a-722e-48c2-95a5-f3bb54700738")
             setHost("http://10.0.2.2:8080")
-            setFetchInterval(TimeUnit.SECONDS.toMillis(30))
+            setFetchInterval(TimeUnit.SECONDS.toMillis(15))
 
             // Enable debug logging
             setDebugLogsEnabled(true)

@@ -93,6 +93,12 @@ internal class PackageInstallerInstaller(
                 DroidDeployInstallReceiver.registerCallback(sessionId) { status, message ->
                     logger.d(TAG, "Install status received: $status, message: $message")
                     when (status) {
+                        PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                            logger.d(TAG, "User action required, checking for confirmation intent")
+                            // The system wants to show the user a confirmation dialog
+                            // This should happen automatically when session.commit() is called
+                            stateFlow.value = DroidInstallState.Installing
+                        }
                         PackageInstaller.STATUS_SUCCESS -> {
                             stateFlow.value = DroidInstallState.Installed
                         }

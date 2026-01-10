@@ -33,6 +33,8 @@ internal class ApiKeyAuthenticator(
         .build()
 
     override fun authenticate(route: Route?, response: Response): Request? {
+        logger.d(TAG, "authenticate() called with response code: ${response.code}")
+
         // Don't retry if this is an auth endpoint
         if (response.request.url.encodedPath.contains("/api/v1/auth/")) {
             logger.d(TAG, "Not retrying auth endpoint")
@@ -45,8 +47,9 @@ internal class ApiKeyAuthenticator(
             return null
         }
 
-        // Only handle 401
+        // Only handle 401 (OkHttp's Authenticator is only triggered for 401, not 403)
         if (response.code != 401) {
+            logger.d(TAG, "Ignoring response code ${response.code}, only handling 401")
             return null
         }
 
@@ -88,6 +91,7 @@ internal class ApiKeyAuthenticator(
 
     private fun fetchNewToken(apiKey: String): String? {
         return try {
+            logger.d(TAG, "Fetching new token using API key")
             val client = OkHttpClient()
             val baseUrl = baseUrlProvider()
 
@@ -107,6 +111,7 @@ internal class ApiKeyAuthenticator(
             val response = client.newCall(request).execute()
 
             if (response.isSuccessful) {
+                logger.d(TAG, "Token refresh successful")
                 val responseBody = response.body?.string()
                 if (responseBody != null) {
                     val responseAdapter = moshi.adapter<RestResponse<ApiTokenDto>>(

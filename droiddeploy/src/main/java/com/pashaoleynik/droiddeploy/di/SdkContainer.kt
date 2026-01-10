@@ -9,6 +9,7 @@ import com.pashaoleynik.droiddeploy.logs.Logger
 import com.pashaoleynik.droiddeploy.network.ApiKeyAuthenticator
 import com.pashaoleynik.droiddeploy.network.AuthHeaderInterceptor
 import com.pashaoleynik.droiddeploy.network.DroidDeployApi
+import com.pashaoleynik.droiddeploy.network.ForbiddenToUnauthorizedInterceptor
 import com.pashaoleynik.droiddeploy.network.HostSelectionInterceptor
 import com.pashaoleynik.droiddeploy.network.HostStore
 import com.pashaoleynik.droiddeploy.network.InMemoryTokenStore
@@ -40,13 +41,16 @@ internal class SdkContainer(
 
     // OkHttp client with interceptors and authenticator
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .addInterceptor(HostSelectionInterceptor(hostStore))
-        .addInterceptor(AuthHeaderInterceptor(tokenStore))
         .apply {
             if (config.debugLogsEnabled) {
                 addInterceptor(OkHttpLoggingInterceptor(logger))
             }
         }
+        .addInterceptor(HostSelectionInterceptor(hostStore))
+        .addInterceptor(AuthHeaderInterceptor(tokenStore, logger))
+        // Use network interceptor so the 403->401 conversion happens BEFORE
+        // OkHttp's internal RetryAndFollowUpInterceptor checks for authentication
+        .addNetworkInterceptor(ForbiddenToUnauthorizedInterceptor(logger))
         .authenticator(
             ApiKeyAuthenticator(
                 baseUrlProvider = { hostStore.get() },

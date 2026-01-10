@@ -65,6 +65,7 @@ internal class UpdatesRepository(
     }
 
     suspend fun forceFetch(): FetchResult {
+        logger.d(TAG, "Force fetch requested")
         if (!fetchMutex.tryLock()) {
             logger.d(TAG, "Fetch already in progress")
             return FetchResult.InProgress

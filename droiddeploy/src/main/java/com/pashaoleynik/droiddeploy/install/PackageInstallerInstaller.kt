@@ -27,7 +27,8 @@ internal class PackageInstallerInstaller(
     suspend fun installApk(
         activity: Activity,
         apkFile: File,
-        stateFlow: MutableStateFlow<DroidInstallState>
+        stateFlow: MutableStateFlow<DroidInstallState>,
+        options: InstallOptions
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             logger.d(TAG, "Starting APK installation: ${apkFile.absolutePath}")
@@ -90,7 +91,10 @@ internal class PackageInstallerInstaller(
                 )
 
                 // Register callback to listen for result
-                DroidDeployInstallReceiver.registerCallback(sessionId) { status, message ->
+                DroidDeployInstallReceiver.registerCallback(
+                    sessionId = sessionId,
+                    autoRelaunch = options.autoRelaunchAfterInstall
+                ) { status, message ->
                     logger.d(TAG, "Install status received: $status, message: $message")
                     when (status) {
                         PackageInstaller.STATUS_PENDING_USER_ACTION -> {

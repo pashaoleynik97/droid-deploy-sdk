@@ -13,11 +13,20 @@ class DroidDeployInstallReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "DroidDeployInstallReceiver"
 
-        // Static registry for callbacks
-        private val callbacks = ConcurrentHashMap<Int, (Int, String?) -> Unit>()
+        private data class CallbackInfo(
+            val callback: (Int, String?) -> Unit,
+            val autoRelaunch: Boolean
+        )
 
-        internal fun registerCallback(sessionId: Int, callback: (Int, String?) -> Unit) {
-            callbacks[sessionId] = callback
+        // Static registry for callbacks
+        private val callbacks = ConcurrentHashMap<Int, CallbackInfo>()
+
+        internal fun registerCallback(
+            sessionId: Int,
+            autoRelaunch: Boolean,
+            callback: (Int, String?) -> Unit
+        ) {
+            callbacks[sessionId] = CallbackInfo(callback, autoRelaunch)
         }
 
         internal fun unregisterCallback(sessionId: Int) {
@@ -56,8 +65,17 @@ class DroidDeployInstallReceiver : BroadcastReceiver() {
             }
         }
 
+        // Get callback info
+        val callbackInfo = callbacks[sessionId]
+
         // Invoke the callback
-        callbacks[sessionId]?.invoke(status, message)
+        callbackInfo?.callback?.invoke(status, message)
+
+        // Handle auto-relaunch on successful installation
+        if (status == PackageInstaller.STATUS_SUCCESS && callbackInfo?.autoRelaunch == true) {
+            Log.d(TAG, "Auto-relaunching app after successful installation")
+            relaunchApp(context)
+        }
 
         // Don't remove callback for PENDING_USER_ACTION, as we'll get another callback
         // after the user approves/denies
@@ -65,4 +83,42 @@ class DroidDeployInstallReceiver : BroadcastReceiver() {
             callbacks.remove(sessionId)
         }
     }
+
+    private fun relaunchApp(context: Context) {
+        try {
+            // Get the launch intent to find the main activity
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+
+            if (launchIntent != null) {
+                val componentName = launchIntent.component
+                if (componentName != null) {
+                    val packageName = componentName.packageName
+                    val activityName = componentName.className
+
+                    Log.d(TAG, "Attempting to relaunch: $packageName/$activityName")
+
+                    // Use a shell command to restart the app after a delay
+                    // This runs independently of the app process
+                    val command = "sleep 2 && am start -n $packageName/$activityName -a android.intent.action.MAIN -c android.intent.category.LAUNCHER --activity-clear-task --activity-new-task"
+
+                    Thread {
+                        try {
+                            Log.d(TAG, "Executing relaunch command: $command")
+                            Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
+                            Log.d(TAG, "Relaunch command executed successfully")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to execute relaunch command", e)
+                        }
+                    }.start()
+                } else {
+                    Log.e(TAG, "Could not get component name from launch intent")
+                }
+            } else {
+                Log.e(TAG, "Could not get launch intent for package: ${context.packageName}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to schedule app relaunch", e)
+        }
+    }
+
 }

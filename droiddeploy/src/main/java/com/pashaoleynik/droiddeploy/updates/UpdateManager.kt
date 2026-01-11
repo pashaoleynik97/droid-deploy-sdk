@@ -118,7 +118,8 @@ internal class UpdateManager(
                 val installResult = installer.installApk(
                     activity = activity,
                     apkFile = apkFile,
-                    stateFlow = _installState
+                    stateFlow = _installState,
+                    options = options
                 )
 
                 if (installResult.isFailure) {

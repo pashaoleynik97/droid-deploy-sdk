@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import com.pashaoleynik.droiddeploy.DroidDeploy
 import com.pashaoleynik.droiddeploy.install.DroidInstallState
+import com.pashaoleynik.droiddeploy.install.InstallOptions
 import com.pashaoleynik.droiddeploy.updates.FetchResult
 import com.pashaoleynik97.droiddeploysdk.ui.theme.DroidDeployTheme
 import kotlinx.coroutines.launch
@@ -157,7 +158,10 @@ fun UpdateScreen(activity: MainActivity, modifier: Modifier = Modifier) {
 
             Button(
                 onClick = {
-                    DroidDeploy.installLatest(activity)
+                    DroidDeploy.installLatest(
+                        activity = activity,
+                        options = InstallOptions(autoRelaunchAfterInstall = true)
+                    )
                 },
                 modifier = Modifier.weight(1f),
                 enabled = updateState.available && installState is DroidInstallState.Idle

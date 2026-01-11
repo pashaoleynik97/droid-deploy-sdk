@@ -120,4 +120,5 @@ class DroidDeployInstallReceiver : BroadcastReceiver() {
             Log.e(TAG, "Failed to schedule app relaunch", e)
         }
     }
+
 }
